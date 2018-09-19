@@ -3,120 +3,88 @@ const cheerio = require("cheerio");
 const { join } = require("path");
 const { URL } = require("url");
 const { Resolver } = require('dns');
-const { get } = require("http");
 
 const dns = "180.76.76.76";
+const dns2 = "123.207.13.111";
 const fileName = "bookmarks";
 
 // DNS解析实例
 const resolver = new Resolver();
 resolver.setServers([dns]);
 
-// resolver.resolve4("www.pixiv.net",true,(err,addresses) => {
-//     console.log(addresses);
-// })
-
 // 读取文件内容格式为cheerio对象
-const $ = cheerio.load(fs.readFileSync(join(__dirname,fileName+".html"),'utf8',(err,data) =>{
-    if(err) throw err;
+const $ = cheerio.load(fs.readFileSync(join(__dirname, fileName + ".html"), 'utf8', (err, data) => {
+    if (err) throw err;
     return data;
 }));
 
 // 获取 去重
 const arr = new Set();
-$("a").each((i ,v) => {
+$("a").each((i, v) => {
     let myUrl = new URL(v.attribs.href).host;
-    if(myUrl) arr.add(myUrl);
+    if (myUrl) arr.add(myUrl);
 });
 
 // DNS解析检测可用
-new Promise((res,rej) => {
-    let nArr = Array.from(arr);
-    let aHosts = new Set();
-    let errList = new Set();
+new Promise((res, rej) => {
+    let nArr = Array.from(arr);  // set -> Array
+    let aHosts = new Set(); // 可用的网址列表
+    let errList = new Set(); // 不可用的网址列表
     let oHost = "";
-    console.log("网址可用检测");
+    let times = Date.now(); // 开始计时
+
+    console.log("网址可用检测，稍等一会");
+    let timeout = 0; // 超时退出定时器
 
     /* 循环生成新的 Resolver 实例并解析地址 */
-    for(let i = 0,len = nArr.length; i < len; i++) {
-        const resolver = new Resolver();
+    for (let i = 0, len = nArr.length; i < len; i++) {
+        clearTimeout(timeout); // 清除超时定时器
+        
+        const resolver = new Resolver(); // 创建一个 DNS 解析实例
+        // 通过设定的国内 DNS 解析网站
         resolver.setServers([dns]);
-        resolver.resolve4(nArr[i],true,(err,addresses) => {
-            if(err) {
-                console.log("err");
-                console.log(err);
+        resolver.resolve4(nArr[i], true, (err, addresses) => {
+            if (err) {
                 errList.add(nArr[i]);
             }
-            if(addresses) {
-                console.log(addresses);
-                console.log(nArr[i]);
-                oHost = nArr[i].match(/\w+.[a-z]+$/)
-                if(oHost) aHosts.add(oHost[0]);
+            if (addresses) {
+                // 解析成功后用可用解析国外的 DNS 再解析验证
+                resolver.setServers([dns2]);
+                resolver.resolve4(nArr[i], true, (err, resses) => {
+                    if (resses) {
+                        resses.forEach(item => {
+                            if (addresses.indexOf(item) != -1) {
+                                oHost = nArr[i].match(/\w+.[a-z]+$/)
+                                if (oHost) aHosts.add(oHost[0]);
+                            }
+                        });
+                    }
+                });
             }
         });
+        timeout = setTimeout(() => {
+            console.log('loading...');
+            setTimeout(() => {
+                times = Date.now() - times;
+                console.log('耗时 ' + times / 1000 + ' s');
+                return res({ aHosts, errList });
+            }, 2000);
+        }, 20000);
     }
-    console.log("loading...");
-    setTimeout(() =>{return res({aHosts,errList});},5000);// 两秒等待时间
 
-    /*同一个 Resolver 实例递归解析 浪费时间*/
-    // function arrforEach(arr,a) {
-    //     let i = a -1;
-    //     resolver.resolve4(arr[i],true,(err,addresses) => {
-    //         if(err) {
-    //             errList.add(arr[i]);
-    //         }
-    //         if(addresses) {
-    //             console.log(arr[i]);
-    //             oHost = arr[i].match(/\w+.[a-z]+$/)
-    //             if(oHost) aHosts.add(oHost[0]);
-    //         }
-    //         if(i==0) return res({aHosts,errList});
-    //         arrforEach(arr,i);
-    //     });
-    // }
-    // arrforEach(nArr,nArr.length);
-
-    /*不可用 */
-    // arr.forEach(v => {
-    //     resolver.resolve4(v,true,(err,addresses) => {
-    //         if(err) {
-    //             errList.add(v);
-    //         }
-    //         if(addresses) {
-    //             oHost = v.match(/\w+.[a-z]+$/)
-    //             if(oHost) aHosts.add(oHost[0]);
-    //         }
-    //     });
-    // });
-    // setTimeout(() =>{return res({aHosts,errList});},2000);
 
 }).then(data => {
     let str = "";
+    console.log(data.aHosts.size);
     // 处理结果对象得到字符串
     Array.from(data.aHosts).sort().forEach(v => {
-        str += "server=/"+v+"/"+dns+"\n";
+        str += "server=/" + v + "/" + dns + "\n";
     });
     // 字符串写入文件
-    fs.writeFileSync(join(__dirname,fileName+".conf"),str,String);
+    fs.writeFileSync(join(__dirname, fileName + ".conf"), str, String);
 
-    console.log("结果已经储存在 "+fileName+".conf")
+    console.log("结果已经储存在 " + fileName + ".conf")
     process.exit();
-    // console.log("不可用网址列表: ");
-    // console.log(data.errList);
-    // console.log("可用网址列表: ");
-    // console.log(data.aHosts);
-    
+
 });
-
-
-
-
-// 处理结果对象得到字符串
-// Array.from(arr).sort().forEach(v => {
-//     str += "server=/"+v+"/"+dns+"\n";
-// });
-
-// 字符串写入文件
-// fs.writeFileSync(join(__dirname,fileName+".conf"),str,String);
-
 
